@@ -1,0 +1,672 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D 极速赛车 · 竞技互动</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        #info {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            background: rgba(0, 0, 0, 0.7);
+            color: #fff;
+            padding: 12px 24px;
+            border-radius: 30px;
+            backdrop-filter: blur(5px);
+            border: 1px solid rgba(255, 215, 0, 0.5);
+            box-shadow: 0 0 20px rgba(0, 0, 0, 0.5);
+            pointer-events: none;
+            z-index: 10;
+        }
+        #speed {
+            position: absolute;
+            bottom: 30px;
+            left: 30px;
+            background: rgba(0, 0, 0, 0.8);
+            color: #ffaa00;
+            font-size: 28px;
+            font-weight: bold;
+            padding: 15px 30px;
+            border-radius: 50px;
+            border-left: 6px solid #ffaa00;
+            box-shadow: 0 0 30px rgba(255, 170, 0, 0.3);
+            letter-spacing: 2px;
+            z-index: 10;
+        }
+        #controls {
+            position: absolute;
+            bottom: 30px;
+            right: 30px;
+            background: rgba(20, 20, 20, 0.9);
+            color: #eee;
+            padding: 15px 25px;
+            border-radius: 12px;
+            font-size: 14px;
+            backdrop-filter: blur(8px);
+            border: 1px solid #444;
+            z-index: 10;
+            line-height: 1.8;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.6);
+        }
+        .key {
+            display: inline-block;
+            background: #333;
+            border-radius: 6px;
+            padding: 2px 12px;
+            margin: 0 4px;
+            font-weight: bold;
+            color: #ffaa00;
+            border-bottom: 3px solid #111;
+        }
+        #hint {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: rgba(255, 255, 255, 0.8);
+            font-size: 24px;
+            background: rgba(0,0,0,0.6);
+            padding: 20px 40px;
+            border-radius: 60px;
+            pointer-events: none;
+            z-index: 20;
+            transition: opacity 1s;
+            white-space: nowrap;
+            border: 1px solid rgba(255,255,255,0.2);
+            text-shadow: 0 0 20px rgba(255,200,0,0.5);
+        }
+        #hint.fade-out {
+            opacity: 0;
+        }
+        #lap-counter {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background: rgba(0, 0, 0, 0.7);
+            color: #fff;
+            padding: 10px 25px;
+            border-radius: 40px;
+            font-size: 20px;
+            font-weight: bold;
+            border: 1px solid gold;
+            box-shadow: 0 0 20px rgba(255, 215, 0, 0.3);
+            z-index: 10;
+        }
+        .glow {
+            text-shadow: 0 0 15px currentColor;
+        }
+    </style>
+</head>
+<body>
+    <div id="info">🏁 极速竞技场 · 3D 赛车</div>
+    <div id="speed">⚡ 0 km/h</div>
+    <div id="lap-counter">🏆 圈数: 1 / 3</div>
+    <div id="controls">
+        <span class="key">W</span> 或 <span class="key">↑</span> 加速<br>
+        <span class="key">S</span> 或 <span class="key">↓</span> 刹车/倒车<br>
+        <span class="key">A</span> 或 <span class="key">←</span> 左转<br>
+        <span class="key">D</span> 或 <span class="key">→</span> 右转<br>
+        <span class="key">R</span> 重置位置
+    </div>
+    <div id="hint">🏎️ 按 W 键加速，完成 3 圈竞赛！</div>
+
+    <!-- 引入 Three.js 和辅助库 -->
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.128.0/build/three.module.js",
+                "three/addons/": "https://unpkg.com/three@0.128.0/examples/jsm/"
+            }
+        }
+    </script>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+        import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
+
+        // --- 初始化场景、相机、渲染器 ---
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x0a1a2a); // 深蓝色夜空
+        scene.fog = new THREE.Fog(0x0a1a2a, 30, 120); // 雾效增加景深感
+
+        const camera = new THREE.PerspectiveCamera(65, window.innerWidth / window.innerHeight, 0.1, 1000);
+        camera.position.set(0, 12, 20); // 相机初始位置
+        
+        // 主 WebGL 渲染器
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.shadowMap.enabled = true; // 开启阴影以增强立体感
+        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        renderer.shadowMap.bias = 0.0005;
+        document.body.appendChild(renderer.domElement);
+
+        // CSS2渲染器用于显示文字标签（圈数提示等）
+        const labelRenderer = new CSS2DRenderer();
+        labelRenderer.setSize(window.innerWidth, window.innerHeight);
+        labelRenderer.domElement.style.position = 'absolute';
+        labelRenderer.domElement.style.top = '0px';
+        labelRenderer.domElement.style.left = '0px';
+        labelRenderer.domElement.style.pointerEvents = 'none'; // 防止阻挡点击
+        document.body.appendChild(labelRenderer.domElement);
+
+        // --- 灯光系统 ---
+        // 环境光提供基础照明
+        const ambientLight = new THREE.AmbientLight(0x404060);
+        scene.add(ambientLight);
+
+        // 主光源 - 产生阴影的平行光 (模拟月光/赛道照明)
+        const dirLight = new THREE.DirectionalLight(0xffeedd, 1.2);
+        dirLight.position.set(20, 30, 10);
+        dirLight.castShadow = true;
+        dirLight.receiveShadow = true;
+        dirLight.shadow.mapSize.width = 1024;
+        dirLight.shadow.mapSize.height = 1024;
+        const d = 35;
+        dirLight.shadow.camera.left = -d;
+        dirLight.shadow.camera.right = d;
+        dirLight.shadow.camera.top = d;
+        dirLight.shadow.camera.bottom = -d;
+        dirLight.shadow.camera.near = 1;
+        dirLight.shadow.camera.far = 80;
+        scene.add(dirLight);
+
+        // 补充暖色光从另一侧
+        const fillLight = new THREE.PointLight(0xffaa55, 0.6);
+        fillLight.position.set(-15, 10, 20);
+        scene.add(fillLight);
+
+        // 为赛车添加动态的车头灯效果（将在update中用点光源模拟）
+        // 这里预创建两个点光源作为车灯（前方）
+        const headlight1 = new THREE.PointLight(0xffdd99, 1.5, 25);
+        const headlight2 = new THREE.PointLight(0xffdd99, 1.5, 25);
+        headlight1.castShadow = false;
+        headlight2.castShadow = false;
+        scene.add(headlight1);
+        scene.add(headlight2);
+
+        // 地面周围点缀一些蓝色氛围光
+        const blueLight = new THREE.PointLight(0x3366ff, 0.3);
+        blueLight.position.set(0, 5, 0);
+        scene.add(blueLight);
+
+        // --- 赛道与地面 ---
+        // 大地平面 (接收阴影)
+        const groundGeometry = new THREE.PlaneGeometry(200, 200);
+        const groundMaterial = new THREE.MeshStandardMaterial({ color: 0x1a3a1a, roughness: 0.9, metalness: 0.1 });
+        const ground = new THREE.Mesh(groundGeometry, groundMaterial);
+        ground.rotation.x = -Math.PI / 2;
+        ground.position.y = -0.01;
+        ground.receiveShadow = true;
+        scene.add(ground);
+
+        // 赛道辅助网格 (让速度感更强)
+        const gridHelper = new THREE.GridHelper(200, 40, 0x88aaff, 0x335588);
+        gridHelper.position.y = 0;
+        scene.add(gridHelper);
+
+        // 椭圆赛道 (环状) - 用一系列小方块围成赛道边缘，增强视觉引导
+        const trackRadiusX = 18;
+        const trackRadiusZ = 12;
+        const trackWidth = 1.0;
+        const segments = 64;
+        const edgeMaterial = new THREE.MeshStandardMaterial({ color: 0xffaa00, emissive: 0x442200 });
+        
+        // 放置一圈的小立柱作为赛道边界 (增强立体感和速度参考)
+        for (let i = 0; i < segments; i++) {
+            const angle = (i / segments) * Math.PI * 2;
+            const x = Math.cos(angle) * trackRadiusX;
+            const z = Math.sin(angle) * trackRadiusZ;
+            
+            // 在每个边界点添加一个小立柱
+            const pillarGeo = new THREE.CylinderGeometry(0.15, 0.25, 0.8, 6);
+            const pillarMat = new THREE.MeshStandardMaterial({ color: 0xffcc00, emissive: 0x553300 });
+            const pillar = new THREE.Mesh(pillarGeo, pillarMat);
+            pillar.position.set(x, 0.4, z);
+            pillar.castShadow = true;
+            pillar.receiveShadow = true;
+            scene.add(pillar);
+        }
+
+        // 添加起跑线/终点线标识 (在椭圆的一个位置)
+        const finishLineAngle = 0; // 从0度开始
+        const finishX = Math.cos(finishLineAngle) * trackRadiusX;
+        const finishZ = Math.sin(finishLineAngle) * trackRadiusZ;
+
+        // 用一系列白色和黑色小块拼成格子旗样式
+        const lineGroup = new THREE.Group();
+        const lineWidth = 2.0;
+        const lineLength = 1.5;
+        for (let i = 0; i < 8; i++) {
+            const boxGeo = new THREE.BoxGeometry(0.35, 0.05, 0.35);
+            const boxMat = new THREE.MeshStandardMaterial({ color: i % 2 === 0 ? 0xffffff : 0x222222, emissive: 0x222222 });
+            const box = new THREE.Mesh(boxGeo, boxMat);
+            box.position.set(-lineWidth/2 + i * 0.5, 0.03, 0);
+            box.receiveShadow = true;
+            lineGroup.add(box);
+        }
+        lineGroup.position.set(finishX, 0, finishZ);
+        lineGroup.rotation.y = Math.atan2(-finishX, -finishZ); // 朝向圆心
+        scene.add(lineGroup);
+
+        // 添加一些路灯/装饰 (增加氛围)
+        for (let i = 0; i < 12; i++) {
+            const angle = (i / 12) * Math.PI * 2;
+            const x = Math.cos(angle) * (trackRadiusX + 3);
+            const z = Math.sin(angle) * (trackRadiusZ + 3);
+            const poleGeo = new THREE.CylinderGeometry(0.1, 0.2, 2.5);
+            const poleMat = new THREE.MeshStandardMaterial({ color: 0x888888 });
+            const pole = new THREE.Mesh(poleGeo, poleMat);
+            pole.position.set(x, 1.25, z);
+            pole.castShadow = true;
+            pole.receiveShadow = true;
+            scene.add(pole);
+            
+            const lampGeo = new THREE.SphereGeometry(0.3);
+            const lampMat = new THREE.MeshStandardMaterial({ color: 0xffaa33, emissive: 0xff5500 });
+            const lamp = new THREE.Mesh(lampGeo, lampMat);
+            lamp.position.set(x, 2.6, z);
+            lamp.castShadow = true;
+            scene.add(lamp);
+            
+            // 添加点光源照亮周围
+            const pointLight = new THREE.PointLight(0xffaa33, 0.5, 15);
+            pointLight.position.set(x, 2.8, z);
+            scene.add(pointLight);
+        }
+
+        // --- 创建赛车 ---
+        const carGroup = new THREE.Group();
+        
+        // 车身主体 (流线型)
+        const bodyGeo = new THREE.BoxGeometry(2.0, 0.6, 4.2);
+        const bodyMat = new THREE.MeshStandardMaterial({ color: 0xff3333, roughness: 0.3, metalness: 0.6, emissive: 0x330000 });
+        const body = new THREE.Mesh(bodyGeo, bodyMat);
+        body.castShadow = true;
+        body.receiveShadow = true;
+        body.position.y = 0.5;
+        carGroup.add(body);
+        
+        // 驾驶舱
+        const cabinGeo = new THREE.BoxGeometry(1.2, 0.5, 1.6);
+        const cabinMat = new THREE.MeshStandardMaterial({ color: 0x111122, roughness: 0.2, metalness: 0.8 });
+        const cabin = new THREE.Mesh(cabinGeo, cabinMat);
+        cabin.castShadow = true;
+        cabin.receiveShadow = true;
+        cabin.position.set(0, 0.95, -0.2);
+        carGroup.add(cabin);
+        
+        // 尾翼
+        const spoilerGeo = new THREE.BoxGeometry(1.8, 0.15, 0.6);
+        const spoilerMat = new THREE.MeshStandardMaterial({ color: 0x222222, roughness: 0.5 });
+        const spoiler = new THREE.Mesh(spoilerGeo, spoilerMat);
+        spoiler.castShadow = true;
+        spoiler.receiveShadow = true;
+        spoiler.position.set(0, 1.05, -1.9);
+        carGroup.add(spoiler);
+        
+        // 车轮 (4个)
+        const wheelGeo = new THREE.CylinderGeometry(0.4, 0.4, 0.3, 16);
+        const wheelMat = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.9 });
+        
+        const wheelPositions = [
+            [-1.0, 0.3, 1.3],  // 前左
+            [1.0, 0.3, 1.3],   // 前右
+            [-1.0, 0.3, -1.3], // 后左
+            [1.0, 0.3, -1.3]   // 后右
+        ];
+        
+        wheelPositions.forEach(pos => {
+            const wheel = new THREE.Mesh(wheelGeo, wheelMat);
+            wheel.rotation.z = Math.PI / 2;
+            wheel.position.set(pos[0], pos[1], pos[2]);
+            wheel.castShadow = true;
+            wheel.receiveShadow = true;
+            carGroup.add(wheel);
+        });
+
+        // 车头灯 (两个小发光体)
+        const lightGeo = new THREE.SphereGeometry(0.15);
+        const lightMat = new THREE.MeshStandardMaterial({ color: 0xffffaa, emissive: 0xffaa00 });
+        const frontLightL = new THREE.Mesh(lightGeo, lightMat);
+        frontLightL.position.set(-0.7, 0.6, 2.0);
+        carGroup.add(frontLightL);
+        const frontLightR = new THREE.Mesh(lightGeo, lightMat);
+        frontLightR.position.set(0.7, 0.6, 2.0);
+        carGroup.add(frontLightR);
+
+        // 将赛车添加到场景，并设置初始位置 (起跑线附近)
+        carGroup.position.set(finishX, 0.2, finishZ);
+        // 初始朝向切线方向 (沿椭圆逆时针)
+        carGroup.rotation.y = Math.atan2(-finishZ, -finishX) + Math.PI/2; 
+        scene.add(carGroup);
+
+        // --- 赛车物理与状态变量 ---
+        const carState = {
+            speed: 0,           // 当前速度 (单位/秒)
+            maxSpeed: 28,       // 最大速度
+            acceleration: 18,   // 加速度
+            brakePower: 30,     // 刹车减速度
+            reverseMaxSpeed: -8,// 倒车最大速度
+            turnSpeed: 2.2,     // 转向角速度 (弧度/秒)
+            position: carGroup.position.clone(),
+            rotationY: carGroup.rotation.y,
+            // 用于圈数检测
+            lastCheckpoint: 0,  // 0: 未过起点, 1: 已过起点
+            lap: 1,
+            totalLaps: 3,
+            // 是否完成比赛
+            finished: false
+        };
+
+        // 键盘输入状态
+        const keys = {
+            forward: false,
+            backward: false,
+            left: false,
+            right: false
+        };
+
+        // 绑定键盘事件
+        window.addEventListener('keydown', (e) => {
+            switch(e.key.toLowerCase()) {
+                case 'w':
+                case 'arrowup':
+                    keys.forward = true;
+                    e.preventDefault();
+                    break;
+                case 's':
+                case 'arrowdown':
+                    keys.backward = true;
+                    e.preventDefault();
+                    break;
+                case 'a':
+                case 'arrowleft':
+                    keys.left = true;
+                    e.preventDefault();
+                    break;
+                case 'd':
+                case 'arrowright':
+                    keys.right = true;
+                    e.preventDefault();
+                    break;
+                case 'r':
+                    resetCar();
+                    e.preventDefault();
+                    break;
+            }
+        });
+
+        window.addEventListener('keyup', (e) => {
+            switch(e.key.toLowerCase()) {
+                case 'w':
+                case 'arrowup':
+                    keys.forward = false;
+                    e.preventDefault();
+                    break;
+                case 's':
+                case 'arrowdown':
+                    keys.backward = false;
+                    e.preventDefault();
+                    break;
+                case 'a':
+                case 'arrowleft':
+                    keys.left = false;
+                    e.preventDefault();
+                    break;
+                case 'd':
+                case 'arrowright':
+                    keys.right = false;
+                    e.preventDefault();
+                    break;
+            }
+        });
+
+        // 重置赛车位置到起跑线
+        function resetCar() {
+            carGroup.position.set(finishX, 0.2, finishZ);
+            carGroup.rotation.y = Math.atan2(-finishZ, -finishX) + Math.PI/2;
+            carState.speed = 0;
+            carState.rotationY = carGroup.rotation.y;
+            carState.lastCheckpoint = 0;
+            carState.lap = 1;
+            carState.finished = false;
+            updateLapDisplay();
+            // 重置提示
+            document.getElementById('hint').classList.remove('fade-out');
+            document.getElementById('hint').textContent = '🏎️ 按 W 键加速，完成 3 圈竞赛！';
+        }
+
+        // 圈数显示更新
+        function updateLapDisplay() {
+            const lapEl = document.getElementById('lap-counter');
+            if (carState.finished) {
+                lapEl.innerHTML = `🏆 比赛完成! 第 ${carState.lap} 圈`;
+            } else {
+                lapEl.innerHTML = `🏆 圈数: ${carState.lap} / ${carState.totalLaps}`;
+            }
+        }
+
+        // --- 相机跟随逻辑 ---
+        // 使用平滑跟随，相机始终在赛车后方偏上
+        function updateCamera() {
+            // 目标位置：赛车后方，并稍微抬高
+            const carPos = carGroup.position;
+            const carRot = carGroup.rotation.y;
+            
+            // 计算后方偏移量 (沿着赛车朝向的反方向)
+            const backDist = 8.5;
+            const upDist = 4.5;
+            
+            // 方向向量 (赛车前方是 +Z 在本地空间，但旋转后需要计算世界方向)
+            // 实际上，我们的赛车模型前方是 +Z 轴，所以后方是 -Z 方向
+            const offsetX = Math.sin(carRot) * backDist;
+            const offsetZ = Math.cos(carRot) * backDist;
+            
+            const desiredPos = new THREE.Vector3(
+                carPos.x - offsetX,
+                carPos.y + upDist,
+                carPos.z - offsetZ
+            );
+            
+            // 平滑插值
+            camera.position.lerp(desiredPos, 0.08);
+            
+            // 让相机看向赛车前方一点的位置，而不是直接看赛车
+            const lookAtPos = new THREE.Vector3(
+                carPos.x + Math.sin(carRot) * 3,
+                carPos.y + 0.5,
+                carPos.z + Math.cos(carRot) * 3
+            );
+            camera.lookAt(lookAtPos);
+        }
+
+        // --- 物理更新与圈数检测 ---
+        const clock = new THREE.Clock();
+
+        function updateCar(deltaTime) {
+            if (carState.finished) {
+                // 如果已完成，不再响应加速，但允许滑行减速
+                carState.speed *= 0.98;
+                if (Math.abs(carState.speed) < 0.1) carState.speed = 0;
+            } else {
+                // 加速逻辑
+                if (keys.forward) {
+                    carState.speed += carState.acceleration * deltaTime;
+                    if (carState.speed > carState.maxSpeed) carState.speed = carState.maxSpeed;
+                } else if (keys.backward) {
+                    carState.speed -= carState.brakePower * deltaTime;
+                    if (carState.speed < carState.reverseMaxSpeed) carState.speed = carState.reverseMaxSpeed;
+                } else {
+                    // 自然减速 (摩擦)
+                    carState.speed *= 0.985;
+                    if (Math.abs(carState.speed) < 0.1) carState.speed = 0;
+                }
+            }
+
+            // 转向 (速度越快转向越迟钝一点，增加真实感)
+            const turnFactor = Math.min(1.0, Math.abs(carState.speed) / 10);
+            let turnDirection = 0;
+            if (keys.left) turnDirection = 1;
+            if (keys.right) turnDirection = -1;
+            
+            if (Math.abs(carState.speed) > 0.5 && turnDirection !== 0) {
+                // 转向角度变化
+                const turnAmount = carState.turnSpeed * deltaTime * turnDirection * (0.6 + 0.4 * turnFactor);
+                carGroup.rotation.y += turnAmount;
+            }
+
+            // 根据速度移动赛车 (沿本地 +Z 方向，因为模型前方是 +Z)
+            // 注意：在 three.js 中，物体默认朝向 +Z 吗？实际上 BoxGeometry 没有方向，我们通过旋转控制。我们的赛车模型前方是 +Z（因为车头灯在 +Z）。
+            // 因此移动方向向量为 (sin(rotY), 0, cos(rotY))
+            const moveX = Math.sin(carGroup.rotation.y) * carState.speed * deltaTime;
+            const moveZ = Math.cos(carGroup.rotation.y) * carState.speed * deltaTime;
+            
+            carGroup.position.x += moveX;
+            carGroup.position.z += moveZ;
+
+            // 简单边界限制 (防止跑出赛道太远，但不强制)
+            const maxDist = 40;
+            if (carGroup.position.length() > maxDist) {
+                // 缓慢拉回，但保留一些自由
+                carGroup.position.x *= 0.99;
+                carGroup.position.z *= 0.99;
+            }
+
+            // 更新车头灯位置 (两个点光源)
+            const carPos = carGroup.position;
+            const rot = carGroup.rotation.y;
+            const headOffset = 2.5;
+            const leftOffset = 0.8;
+            
+            // 左前灯世界坐标
+            headlight1.position.set(
+                carPos.x + Math.sin(rot) * headOffset + Math.cos(rot) * leftOffset,
+                carPos.y + 0.6,
+                carPos.z + Math.cos(rot) * headOffset - Math.sin(rot) * leftOffset
+            );
+            // 右前灯
+            headlight2.position.set(
+                carPos.x + Math.sin(rot) * headOffset - Math.cos(rot) * leftOffset,
+                carPos.y + 0.6,
+                carPos.z + Math.cos(rot) * headOffset + Math.sin(rot) * leftOffset
+            );
+
+            // 更新速度显示
+            const speedKmh = Math.abs(carState.speed) * 3.6;
+            document.getElementById('speed').innerHTML = `⚡ ${Math.round(speedKmh)} km/h`;
+
+            // --- 圈数检测逻辑 ---
+            // 使用椭圆参数：根据位置角度判断是否经过起点 (角度接近0) 
+            // 为了避免抖动，我们使用两个检查点：一个在起点附近(角度0)，一个在对面(角度PI)
+            // 当赛车从对面回到起点附近时，圈数+1
+            
+            // 计算当前角度 (相对于椭圆中心，用atan2)
+            const angle = Math.atan2(carGroup.position.z / trackRadiusZ, carGroup.position.x / trackRadiusX);
+            // 归一化到 0 到 2PI
+            let normAngle = angle < 0 ? angle + Math.PI * 2 : angle;
+            
+            // 定义起点角度为0 (即完成线位置)
+            const startAngle = 0;
+            const angleThreshold = 0.3; // 弧度
+            
+            // 检测是否在起点附近 (完成线区域)
+            const nearStart = Math.abs(normAngle - startAngle) < angleThreshold || Math.abs(normAngle - (startAngle + Math.PI*2)) < angleThreshold;
+            
+            // 检测是否在对面区域 (大约 PI)
+            const nearOpposite = Math.abs(normAngle - Math.PI) < angleThreshold;
+            
+            // 状态机：0=未过起点，1=已过起点且在对面附近(或已过起点)
+            if (nearStart && carState.lastCheckpoint === 1) {
+                // 完成一圈
+                if (!carState.finished) {
+                    carState.lap++;
+                    if (carState.lap > carState.totalLaps) {
+                        carState.finished = true;
+                        carState.lap = carState.totalLaps;
+                        document.getElementById('hint').textContent = '🏆 恭喜！你完成了比赛！按 R 重新开始';
+                        document.getElementById('hint').classList.remove('fade-out');
+                    } else {
+                        // 显示短暂提示
+                        document.getElementById('hint').textContent = `🎉 第 ${carState.lap-1} 圈完成! 继续加油!`;
+                        document.getElementById('hint').classList.remove('fade-out');
+                        setTimeout(() => {
+                            if (!carState.finished) {
+                                document.getElementById('hint').classList.add('fade-out');
+                            }
+                        }, 1500);
+                    }
+                    updateLapDisplay();
+                }
+                carState.lastCheckpoint = 0; // 重置，等待下一次过对面
+            } else if (nearOpposite && carState.lastCheckpoint === 0) {
+                // 到达对面检查点，标记已通过起点
+                carState.lastCheckpoint = 1;
+            }
+            
+            // 如果离起点太远并且没有通过对面，重置标志 (防止抄近道)
+            // 简单处理：如果离起点很远且没经过对面，但过了很久？可以忽略，为了简单就不做了
+        }
+
+        // --- 动画循环 ---
+        function animate() {
+            const deltaTime = Math.min(clock.getDelta(), 0.1); // 限制最大步长
+            
+            // 更新赛车物理
+            updateCar(deltaTime);
+            
+            // 更新相机
+            updateCamera();
+            
+            // 渲染
+            renderer.render(scene, camera);
+            labelRenderer.render(scene, camera);
+            
+            requestAnimationFrame(animate);
+        }
+
+        // 启动动画
+        animate();
+
+        // 窗口大小自适应
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            labelRenderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        // 开始后几秒淡出提示
+        setTimeout(() => {
+            document.getElementById('hint').classList.add('fade-out');
+        }, 4000);
+
+        // 初始化圈数显示
+        updateLapDisplay();
+
+        // 添加一些星星（氛围）
+        const starsGeometry = new THREE.BufferGeometry();
+        const starsCount = 2000;
+        const starPositions = new Float32Array(starsCount * 3);
+        for (let i = 0; i < starsCount * 3; i += 3) {
+            starPositions[i] = (Math.random() - 0.5) * 500;
+            starPositions[i+1] = (Math.random() - 0.5) * 200 + 50; // 在天空高处
+            starPositions[i+2] = (Math.random() - 0.5) * 500;
+        }
+        starsGeometry.setAttribute('position', new THREE.BufferAttribute(starPositions, 3));
+        const starsMaterial = new THREE.PointsMaterial({ color: 0xffffff, size: 0.5 });
+        const stars = new THREE.Points(starsGeometry, starsMaterial);
+        scene.add(stars);
+        
+        // 远山/背景效果？不用太复杂
+
+        console.log('3D 赛车游戏已启动！');
+    </script>
+</body>
+</html>
